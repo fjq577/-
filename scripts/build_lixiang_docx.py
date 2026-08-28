@@ -33,7 +33,7 @@ def enable_track_revisions(doc: Document) -> None:
     core = doc.core_properties
     core.author = AUTHOR
     core.last_modified_by = AUTHOR
-    core.revision = 4
+    core.revision = 5
     core.created = datetime(2026, 5, 13, tzinfo=timezone.utc)
     core.modified = datetime(2026, 8, 28, tzinfo=timezone.utc)
     core.title = "济宁市兖州区惠民城建投资有限公司非公开发行公司债券项目立项申请报告"
@@ -56,13 +56,21 @@ def _east_asia_font(rPr, name="仿宋_GB2312", size_pt=12):
     rPr.append(szCs)
 
 
-def _run_text(text: str, size_pt=12, bold=False):
+def _highlight(rPr, color="yellow"):
+    hl = OxmlElement("w:highlight")
+    hl.set(qn("w:val"), color)
+    rPr.append(hl)
+
+
+def _run_text(text: str, size_pt=12, bold=False, highlight=False):
     r = OxmlElement("w:r")
     rPr = OxmlElement("w:rPr")
     _east_asia_font(rPr, size_pt=size_pt)
     if bold:
         rPr.append(OxmlElement("w:b"))
         rPr.append(OxmlElement("w:bCs"))
+    if highlight:
+        _highlight(rPr)
     r.append(rPr)
     t = OxmlElement("w:t")
     t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
@@ -71,7 +79,7 @@ def _run_text(text: str, size_pt=12, bold=False):
     return r
 
 
-def _rev_wrap(kind: str, text: str, size_pt=12, bold=False):
+def _rev_wrap(kind: str, text: str, size_pt=12, bold=False, highlight=False):
     wrapper = OxmlElement("w:ins" if kind == "ins" else "w:del")
     wrapper.set(qn("w:id"), _nid())
     wrapper.set(qn("w:author"), AUTHOR)
@@ -81,6 +89,8 @@ def _rev_wrap(kind: str, text: str, size_pt=12, bold=False):
     _east_asia_font(rPr, size_pt=size_pt)
     if bold:
         rPr.append(OxmlElement("w:b"))
+    if highlight:
+        _highlight(rPr)
     r.append(rPr)
     tag = "w:t" if kind == "ins" else "w:delText"
     t = OxmlElement(tag)
@@ -89,6 +99,28 @@ def _rev_wrap(kind: str, text: str, size_pt=12, bold=False):
     r.append(t)
     wrapper.append(r)
     return wrapper
+
+
+BLANK = "——"
+
+
+def _expand_blanks(kind: str, text: str):
+    """募说未披露数据（——）单独成段，便于标黄。"""
+    if BLANK not in text:
+        return [(kind, text)]
+    out = []
+    segs = text.split(BLANK)
+    for i, seg in enumerate(segs):
+        if seg:
+            out.append((kind, seg))
+        if i < len(segs) - 1:
+            if kind == "t":
+                out.append(("y", BLANK))
+            elif kind == "i":
+                out.append(("iy", BLANK))
+            else:
+                out.append((kind, BLANK))
+    return out
 
 
 def add_mixed(p, parts, size_pt=12, bold=False, first_indent=True):
@@ -103,11 +135,18 @@ def add_mixed(p, parts, size_pt=12, bold=False, first_indent=True):
         rPr_def = OxmlElement("w:rPr")
         pPr.append(rPr_def)
     _east_asia_font(rPr_def, size_pt=size_pt)
+    expanded = []
     for kind, text in parts:
         if not text:
             continue
+        expanded.extend(_expand_blanks(kind, text))
+    for kind, text in expanded:
         if kind == "t":
             p._p.append(_run_text(text, size_pt=size_pt, bold=bold))
+        elif kind == "y":
+            p._p.append(_run_text(text, size_pt=size_pt, bold=bold, highlight=True))
+        elif kind == "iy":
+            p._p.append(_rev_wrap("ins", text, size_pt=size_pt, bold=bold, highlight=True))
         else:
             p._p.append(_rev_wrap("ins" if kind == "i" else "del", text, size_pt=size_pt, bold=bold))
 
